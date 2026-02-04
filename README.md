@@ -173,3 +173,38 @@ The tests include:
 This crate follows semantic versioning for its public API surface. Asset changes (`glm.json`, template) may change outputs and should be considered behavior changes; prefer bumping at least the minor version when those are updated.
 
 Current version: `0.2.6`
+
+## Git LFS (Large Files)
+
+This repo uses Git LFS for `glm.json`.
+
+### Install Git LFS
+- macOS (Homebrew):
+  ```bash
+  brew install git-lfs
+  git lfs install
+  ````
+
+* Ubuntu/Debian:
+
+  ```bash
+  sudo apt update
+  sudo apt install git-lfs
+  git lfs install
+  ```
+
+### Clone and fetch LFS files
+
+```bash
+git clone <REPO_URL>
+cd <REPO_DIR>
+git lfs pull
+```
+
+### Track `glm.json` with LFS (contributors)
+
+```bash
+git lfs track "glm.json"
+git add .gitattributes
+git commit -m "Track glm.json with Git LFS"
+```
