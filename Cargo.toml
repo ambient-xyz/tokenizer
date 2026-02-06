@@ -8,7 +8,7 @@ homepage = "https://ambient.xyz"
 edition = "2024"
 
 [dependencies]
-async-threadpool = {path = "../async-threadpool"}
+async-threadpool = {git = "https://github.com/ambient-xyz/async-threadpool"}
 minijinja = { version = "2", features = ["builtins"] }
 minijinja-contrib = { version = "2", features = ["pycompat"] }
 serde = { version = "1", features = ["derive"] }

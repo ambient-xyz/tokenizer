@@ -28,6 +28,7 @@ dependencies = [
 [[package]]
 name = "async-threadpool"
 version = "0.2.6"
+source = "git+https://github.com/ambient-xyz/async-threadpool#3d7a67e753b7e6d56ed33a5b5532c3ac8b737e9f"
 dependencies = [
  "rayon",
  "thiserror",
