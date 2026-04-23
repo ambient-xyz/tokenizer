@@ -1,69 +1,50 @@
 # tokenizer
 
-Production-grade, async token counting utilities for GLM (ChatGLM-4/GLM-4.6 style) using a bundled tokenizer config (`glm.json`) and a bundled chat template (`glm_4_6_chat_template.jinja`).
+Async token counting utilities for Ambient's GLM serving path.
 
-This crate provides two entry points:
+This crate is currently pinned to the GLM-5.1 FP8 serving assets:
 
-- `glm(...)`: tokenize raw text (no chat template).
-- `glm_chat(...)`: tokenize chat messages after rendering the GLM chat template (includes any extra template/prompt tokens).
+- Model: `zai-org/GLM-5.1-FP8`
+- Model revision: `f396cf805182f4ca10fa675e1a99815b3ca384db`
+- Tokenizer: `glm.json`
+- Tokenizer SHA256: `19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d`
+- Chat template: `glm_5_1_chat_template.jinja`
+- Chat template SHA256: `7e11a0b0081fb7ebb2280f8ac320a2c3816201a792241ee77c9f9bdf26d779cf`
+- Max model length: `202752`
 
-## What this is for
+The tokenizer and chat template must match the SGLang model snapshot used by
+miners. Cache-aware routing depends on that identity; changing these assets
+changes token counts and token-block hashes.
 
-- Fast, consistent token counting in services that need to:
-  - enforce input/output token limits
-  - price requests
-  - validate prompts before sending to an LLM
-- GLM-specific behavior: the chat token count depends on template formatting, so `glm_chat` gives a closer estimate to what the model receives.
+The bundled template is semantically equivalent to the upstream GLM-5.1
+`chat_template.jinja`, with one compatibility edit for MiniJinja:
+`m.content.0.type` is represented as `m.content[0].type`.
 
-## Features
+## API
 
-- **Bundled assets**: ships with `glm.json` tokenizer config and `glm_4_6_chat_template.jinja` chat template embedded at compile time.
-- **Async-friendly**: tokenization work is offloaded via `async-threadpool` to avoid blocking async runtimes.
-- **Template compatibility**: uses `minijinja` plus `minijinja-contrib` `pycompat` callback to support common Jinja/Python-style methods (e.g. `strip`) used by templates.
-- **Small API surface**: minimal types and functions; easy to integrate.
+- `glm(...)`: count tokens for raw text without applying a chat template.
+- `glm_token_ids(...)`: return token ids for raw text.
+- `glm_chat(...)`: count tokens after rendering the GLM-5.1 chat template with
+  default options.
+- `glm_chat_with_options(...)`: count chat tokens with explicit template flags
+  such as `enable_thinking`.
+- `glm_chat_token_ids(...)`: return token ids for chat messages with default
+  template options.
+- `glm_chat_token_ids_with_options(...)`: return token ids for chat messages
+  with explicit template options.
+- `glm_tokenizer_identity()`: return model, tokenizer, and template identity
+  metadata for downstream cache-key scoping.
 
-## Install
-
-This crate is currently marked as `license = "Proprietary"` and is intended for internal/private consumption.
-
-Add to your workspace / project:
-
-```toml
-[dependencies]
-tokenizer = { path = "../tokenizer" }
-````
-
-If you consume it from Git:
-
-```toml
-[dependencies]
-tokenizer = { git = "https://github.com/ambient-xyz/tokenizer", tag = "v0.2.6" }
-```
-
-> Note: `edition = "2024"`; ensure your toolchain supports Rust 2024 edition.
-
-## Quick start
-
-### Raw tokenization (no chat template)
+## Quick Start
 
 ```rust
-use tokenizer::glm;
+use tokenizer::{glm_chat, glm_tokenizer_identity, ChatMessage};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let n = glm("Hello, world!").await?;
-    println!("raw tokens: {n}");
-    Ok(())
-}
-```
+    let identity = glm_tokenizer_identity();
+    println!("tokenizer: {:?}", identity);
 
-### Chat tokenization (template applied)
-
-```rust
-use tokenizer::{glm_chat, ChatMessage};
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
     let messages = vec![
         ChatMessage::system("You are a helpful assistant.".to_string()),
         ChatMessage::user("Hello, world!".to_string()),
@@ -75,136 +56,45 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
-## API
+## Template Options
 
-### `ChatMessage`
-
-A serializable message type that matches typical chat role/content pairs.
-
-```rust
-pub struct ChatMessage {
-    pub role: String,
-    pub content: String,
-}
-```
-
-Helpers:
-
-* `ChatMessage::system(content: String)`
-* `ChatMessage::user(content: String)`
-* `ChatMessage::assistant(content: String)`
-* `ChatMessage::tool(content: String)`
-
-### `glm(input) -> Result<usize, Error>`
-
-Tokenizes raw input using the bundled GLM tokenizer config.
-
-* **Does not** apply any chat template.
-* Generic over `E: Into<InputSequence<'a>> + Send + 'static` (e.g. `&str`, `String`).
-
-### `glm_chat(messages) -> Result<usize, Error>`
-
-* Renders `glm_4_6_chat_template.jinja` using MiniJinja with `pycompat`.
-* Sets `add_generation_prompt => true` when rendering (so the final formatted prompt includes the model’s expected generation prompt).
-* Tokenizes the rendered prompt using the bundled GLM tokenizer config.
-
-## Error handling
-
-All public APIs return:
+GLM-5.1's chat template has flags that affect serialized prompt tokens. Use
+`ChatTemplateOptions` when a serving path sets those flags explicitly.
 
 ```rust
-Result<usize, tokenizer::Error>
+use tokenizer::{glm_chat_with_options, ChatMessage, ChatTemplateOptions};
+
+let tokens = glm_chat_with_options(
+    vec![ChatMessage::user("Hello".to_string())],
+    ChatTemplateOptions {
+        enable_thinking: Some(false),
+        ..ChatTemplateOptions::default()
+    },
+).await?;
 ```
 
-Error variants:
+Leaving an option as `None` omits it from the template context, preserving the
+upstream template's default behavior.
 
-* `Error::Tokenization(tokenizers::tokenizer::Error)` — tokenizer encode failures
-* `Error::ThreadPool(async_threadpool::Error)` — threadpool execution failures
-* `Error::Template(minijinja::Error)` — template parse/render failures
+## Determinism
 
-## Performance notes
+`glm_chat` output is sensitive to:
 
-* Tokenization is executed in an async threadpool to keep async request handlers responsive.
-* The GLM tokenizer is initialized once and cached globally using `std::sync::LazyLock`.
-* `glm_chat` creates a MiniJinja `Environment` per call; if you need ultra-high throughput, consider extending the crate to cache a prepared `Environment` + compiled template (thread-safe strategy required).
+- model revision
+- tokenizer JSON
+- chat template
+- `add_generation_prompt`
+- `enable_thinking`
+- `clear_thinking`
 
-## Determinism and compatibility
-
-* `glm_chat` output is sensitive to the embedded template and the `add_generation_prompt` flag.
-* Changing `glm.json` or `glm_4_6_chat_template.jinja` will change token counts; treat those as versioned, user-visible behavior.
+Downstream services should store `glm_tokenizer_identity()` alongside cache-key
+or accounting metadata.
 
 ## Testing
-
-Run the full test suite:
 
 ```bash
 cargo test
 ```
 
-The tests include:
-
-* tokenizer initialization
-* raw token count sanity checks
-* chat-vs-raw comparisons to ensure template overhead is present
-
-## Repository layout
-
-```
-.
-├── Cargo.toml
-├── Cargo.lock
-├── glm.json
-├── glm_4_6_chat_template.jinja
-└── src
-    └── lib.rs
-```
-
-## Security and operational notes
-
-* Inputs are treated as untrusted text. Tokenization and template rendering should not execute code, but very large inputs can consume CPU/memory. Enforce reasonable size limits at the API boundary.
-* If you accept user-provided message lists, cap:
-
-    * number of messages
-    * total character length
-    * maximum per-message length
-
-## Versioning
-
-This crate follows semantic versioning for its public API surface. Asset changes (`glm.json`, template) may change outputs and should be considered behavior changes; prefer bumping at least the minor version when those are updated.
-
-Current version: `0.2.6`
-
-## Git LFS (Large Files)
-
-This repo uses Git LFS for `glm.json`.
-
-### Install Git LFS
-- macOS (Homebrew):
-  ```bash
-  brew install git-lfs
-  git lfs install
-  ````
-
-* Ubuntu/Debian:
-
-  ```bash
-  sudo apt update
-  sudo apt install git-lfs
-  git lfs install
-  ```
-
-### Clone and fetch LFS files
-
-```bash
-git clone <REPO_URL>
-cd <REPO_DIR>
-git lfs pull
-```
-
-### Track `glm.json` with LFS (contributors)
-
-```bash
-git lfs track "glm.json"
-git add .gitattributes
-git commit -m "Track glm.json with Git LFS"
-```
+The tests initialize the bundled tokenizer, validate identity metadata, compare
+raw and chat token counts, and ensure token-id APIs match count APIs.
