@@ -7,6 +7,10 @@ license = "Proprietary"
 homepage = "https://ambient.xyz"
 edition = "2024"
 
+[features]
+"glm-4.6" = []
+"glm-5.1" = []
+
 [dependencies]
 async-threadpool = {git = "https://github.com/ambient-xyz/async-threadpool"}
 minijinja = { version = "2", features = ["builtins"] }

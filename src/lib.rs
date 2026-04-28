@@ -15,10 +15,24 @@ pub enum Error {
     Template(#[from] minijinja::Error),
 }
 
-static GLM_TOKENIZER: LazyLock<Tokenizer> =
-    LazyLock::new(|| Tokenizer::from_bytes(include_bytes!("../glm.json")).unwrap());
+#[cfg(all(feature = "glm-4.6", feature = "glm-5.1"))]
+compile_error!("features `glm-4.6` and `glm-5.1` are mutually exclusive; enable exactly one");
 
+#[cfg(not(any(feature = "glm-4.6", feature = "glm-5.1")))]
+compile_error!("one of the features `glm-4.6` or `glm-5.1` must be enabled");
+
+#[cfg(feature = "glm-4.6")]
+const GLM_TOKENIZER_BYTES: &[u8] = include_bytes!("../glm.json");
+#[cfg(feature = "glm-4.6")]
 static GLM_CHAT_TEMPLATE: &str = include_str!("../glm_4_6_chat_template.jinja");
+
+#[cfg(feature = "glm-5.1")]
+const GLM_TOKENIZER_BYTES: &[u8] = include_bytes!("../glm5-1.json");
+#[cfg(feature = "glm-5.1")]
+static GLM_CHAT_TEMPLATE: &str = include_str!("../glm_5_1_chat_template.jinja");
+
+static GLM_TOKENIZER: LazyLock<Tokenizer> =
+    LazyLock::new(|| Tokenizer::from_bytes(GLM_TOKENIZER_BYTES).unwrap());
 
 /// A message for tokenization with chat template applied
 #[derive(Debug, Clone, Serialize)]
