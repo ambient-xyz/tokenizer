@@ -26,21 +26,51 @@ This crate provides two entry points:
 
 This crate is currently marked as `license = "Proprietary"` and is intended for internal/private consumption.
 
-Add to your workspace / project:
+Add to your workspace / project. You must enable exactly one model feature (see [Cargo features](#cargo-features)):
 
 ```toml
 [dependencies]
-tokenizer = { path = "../tokenizer" }
+tokenizer = { path = "../tokenizer", features = ["glm-4.6"] }
 ````
 
 If you consume it from Git:
 
 ```toml
 [dependencies]
-tokenizer = { git = "https://github.com/ambient-xyz/tokenizer", tag = "v0.2.6" }
+tokenizer = { git = "https://github.com/ambient-xyz/tokenizer", tag = "v1.0.0", features = ["glm-4.6"] }
 ```
 
 > Note: `edition = "2024"`; ensure your toolchain supports Rust 2024 edition.
+
+## Cargo features
+
+This crate selects the bundled tokenizer config and chat template at compile time via Cargo features. Exactly one model feature must be enabled — they are mutually exclusive, and there is no default.
+
+| Feature   | Tokenizer config | Chat template                  |
+|-----------|------------------|--------------------------------|
+| `glm-4.6` | `glm.json`       | `glm_4_6_chat_template.jinja`  |
+| `glm-5.1` | `glm5-1.json`    | `glm_5_1_chat_template.jinja`  |
+
+Compile-time guards enforce the constraint:
+
+- Enabling both `glm-4.6` and `glm-5.1` fails the build with: `features `glm-4.6` and `glm-5.1` are mutually exclusive; enable exactly one`.
+- Enabling neither fails the build with: `one of the features `glm-4.6` or `glm-5.1` must be enabled`.
+
+Selecting a feature on the command line:
+
+```bash
+cargo build --features glm-4.6
+cargo test  --features glm-5.1
+```
+
+If you depend on this crate and need to switch models without forking, override the feature in your downstream `Cargo.toml`:
+
+```toml
+[dependencies]
+tokenizer = { git = "https://github.com/ambient-xyz/tokenizer", tag = "v1.0.0", default-features = false, features = ["glm-5.1"] }
+```
+
+Switching the active feature changes token counts for both `glm` and `glm_chat`; treat it as a behavior-changing version bump for any service that depends on stable counts.
 
 ## Quick start
 
@@ -172,7 +202,7 @@ The tests include:
 
 This crate follows semantic versioning for its public API surface. Asset changes (`glm.json`, template) may change outputs and should be considered behavior changes; prefer bumping at least the minor version when those are updated.
 
-Current version: `0.2.6`
+Current version: `1.0.0`
 
 ## Git LFS (Large Files)
 
