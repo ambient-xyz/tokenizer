@@ -1,11 +1,11 @@
 # tokenizer
 
-Production-grade, async token counting utilities for GLM (ChatGLM-4/GLM-4.6 style) using a bundled tokenizer config (`glm.json`) and a bundled chat template (`glm_4_6_chat_template.jinja`).
+Production-grade, async token counting utilities for Qwen2.5-0.5B-Instruct using a bundled tokenizer config (`qwen2_5_0_5b_instruct.json`) and the Hugging Face chat template (`qwen2_5_0_5b_instruct_chat_template.jinja`) that SGLang uses for `Qwen/Qwen2.5-0.5B-Instruct`.
 
 This crate provides two entry points:
 
-- `glm(...)`: tokenize raw text (no chat template).
-- `glm_chat(...)`: tokenize chat messages after rendering the GLM chat template (includes any extra template/prompt tokens).
+- `qwen(...)`: tokenize raw text (no chat template).
+- `qwen_chat(...)`: tokenize chat messages after rendering the Qwen chat template (includes any extra template/prompt tokens).
 
 ## What this is for
 
@@ -13,11 +13,11 @@ This crate provides two entry points:
   - enforce input/output token limits
   - price requests
   - validate prompts before sending to an LLM
-- GLM-specific behavior: the chat token count depends on template formatting, so `glm_chat` gives a closer estimate to what the model receives.
+- Qwen-specific behavior: the chat token count depends on template formatting, so `qwen_chat` gives a closer estimate to what the model receives.
 
 ## Features
 
-- **Bundled assets**: ships with `glm.json` tokenizer config and `glm_4_6_chat_template.jinja` chat template embedded at compile time.
+- **Bundled assets**: ships with `qwen2_5_0_5b_instruct.json` tokenizer config and `qwen2_5_0_5b_instruct_chat_template.jinja` chat template embedded at compile time.
 - **Async-friendly**: tokenization work is offloaded via `async-threadpool` to avoid blocking async runtimes.
 - **Template compatibility**: uses `minijinja` plus `minijinja-contrib` `pycompat` callback to support common Jinja/Python-style methods (e.g. `strip`) used by templates.
 - **Small API surface**: minimal types and functions; easy to integrate.
@@ -47,11 +47,11 @@ tokenizer = { git = "https://github.com/ambient-xyz/tokenizer", tag = "v0.2.6" }
 ### Raw tokenization (no chat template)
 
 ```rust
-use tokenizer::glm;
+use tokenizer::qwen;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let n = glm("Hello, world!").await?;
+    let n = qwen("Hello, world!").await?;
     println!("raw tokens: {n}");
     Ok(())
 }
@@ -60,7 +60,7 @@ async fn main() -> anyhow::Result<()> {
 ### Chat tokenization (template applied)
 
 ```rust
-use tokenizer::{glm_chat, ChatMessage};
+use tokenizer::{qwen_chat, ChatMessage};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -69,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
         ChatMessage::user("Hello, world!".to_string()),
     ];
 
-    let n = glm_chat(messages).await?;
+    let n = qwen_chat(messages).await?;
     println!("chat tokens: {n}");
     Ok(())
 }
@@ -95,18 +95,20 @@ Helpers:
 * `ChatMessage::assistant(content: String)`
 * `ChatMessage::tool(content: String)`
 
-### `glm(input) -> Result<usize, Error>`
+### `qwen(input) -> Result<usize, Error>`
 
-Tokenizes raw input using the bundled GLM tokenizer config.
+Tokenizes raw input using the bundled Qwen tokenizer config.
 
 * **Does not** apply any chat template.
 * Generic over `E: Into<InputSequence<'a>> + Send + 'static` (e.g. `&str`, `String`).
 
-### `glm_chat(messages) -> Result<usize, Error>`
+### `qwen_chat(messages) -> Result<usize, Error>`
 
-* Renders `glm_4_6_chat_template.jinja` using MiniJinja with `pycompat`.
+* Renders `qwen2_5_0_5b_instruct_chat_template.jinja` using MiniJinja with `pycompat`.
 * Sets `add_generation_prompt => true` when rendering (so the final formatted prompt includes the model’s expected generation prompt).
-* Tokenizes the rendered prompt using the bundled GLM tokenizer config.
+* Tokenizes the rendered prompt using the bundled Qwen tokenizer config.
+
+The old `glm` and `glm_chat` functions remain as deprecated compatibility aliases for existing callers.
 
 ## Error handling
 
@@ -125,13 +127,13 @@ Error variants:
 ## Performance notes
 
 * Tokenization is executed in an async threadpool to keep async request handlers responsive.
-* The GLM tokenizer is initialized once and cached globally using `std::sync::LazyLock`.
-* `glm_chat` creates a MiniJinja `Environment` per call; if you need ultra-high throughput, consider extending the crate to cache a prepared `Environment` + compiled template (thread-safe strategy required).
+* The Qwen tokenizer is initialized once and cached globally using `std::sync::LazyLock`.
+* `qwen_chat` creates a MiniJinja `Environment` per call; if you need ultra-high throughput, consider extending the crate to cache a prepared `Environment` + compiled template (thread-safe strategy required).
 
 ## Determinism and compatibility
 
-* `glm_chat` output is sensitive to the embedded template and the `add_generation_prompt` flag.
-* Changing `glm.json` or `glm_4_6_chat_template.jinja` will change token counts; treat those as versioned, user-visible behavior.
+* `qwen_chat` output is sensitive to the embedded template and the `add_generation_prompt` flag.
+* Changing `qwen2_5_0_5b_instruct.json` or `qwen2_5_0_5b_instruct_chat_template.jinja` will change token counts; treat those as versioned, user-visible behavior.
 
 ## Testing
 
@@ -153,8 +155,8 @@ The tests include:
 .
 ├── Cargo.toml
 ├── Cargo.lock
-├── glm.json
-├── glm_4_6_chat_template.jinja
+├── qwen2_5_0_5b_instruct.json
+├── qwen2_5_0_5b_instruct_chat_template.jinja
 └── src
     └── lib.rs
 ```
@@ -170,13 +172,13 @@ The tests include:
 
 ## Versioning
 
-This crate follows semantic versioning for its public API surface. Asset changes (`glm.json`, template) may change outputs and should be considered behavior changes; prefer bumping at least the minor version when those are updated.
+This crate follows semantic versioning for its public API surface. Asset changes (`qwen2_5_0_5b_instruct.json`, template) may change outputs and should be considered behavior changes; prefer bumping at least the minor version when those are updated.
 
 Current version: `0.2.6`
 
 ## Git LFS (Large Files)
 
-This repo uses Git LFS for `glm.json`.
+This repo uses Git LFS for large tokenizer JSON files.
 
 ### Install Git LFS
 - macOS (Homebrew):
@@ -201,10 +203,10 @@ cd <REPO_DIR>
 git lfs pull
 ```
 
-### Track `glm.json` with LFS (contributors)
+### Track tokenizer JSON with LFS (contributors)
 
 ```bash
-git lfs track "glm.json"
+git lfs track "*.json"
 git add .gitattributes
-git commit -m "Track glm.json with Git LFS"
+git commit -m "Track tokenizer JSON with Git LFS"
 ```

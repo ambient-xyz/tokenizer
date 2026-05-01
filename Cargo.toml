@@ -8,8 +8,8 @@ homepage = "https://ambient.xyz"
 edition = "2024"
 
 [features]
-"glm-4.6" = []
-"glm-5.1" = []
+default = ["qwen-2.5-0.5b-instruct"]
+"qwen-2.5-0.5b-instruct" = []
 
 [dependencies]
 async-threadpool = {git = "https://github.com/ambient-xyz/async-threadpool"}

@@ -3,6 +3,7 @@ use std::sync::LazyLock;
 use minijinja::{Environment, context};
 use minijinja_contrib::pycompat;
 use serde::Serialize;
+use serde_json::Value;
 use tokenizers::{InputSequence, Tokenizer};
 
 #[derive(Debug, thiserror::Error)]
@@ -15,24 +16,14 @@ pub enum Error {
     Template(#[from] minijinja::Error),
 }
 
-#[cfg(all(feature = "glm-4.6", feature = "glm-5.1"))]
-compile_error!("features `glm-4.6` and `glm-5.1` are mutually exclusive; enable exactly one");
+#[cfg(not(feature = "qwen-2.5-0.5b-instruct"))]
+compile_error!("feature `qwen-2.5-0.5b-instruct` must be enabled");
 
-#[cfg(not(any(feature = "glm-4.6", feature = "glm-5.1")))]
-compile_error!("one of the features `glm-4.6` or `glm-5.1` must be enabled");
+const QWEN_TOKENIZER_BYTES: &[u8] = include_bytes!("../qwen2_5_0_5b_instruct.json");
+static QWEN_CHAT_TEMPLATE: &str = include_str!("../qwen2_5_0_5b_instruct_chat_template.jinja");
 
-#[cfg(feature = "glm-4.6")]
-const GLM_TOKENIZER_BYTES: &[u8] = include_bytes!("../glm.json");
-#[cfg(feature = "glm-4.6")]
-static GLM_CHAT_TEMPLATE: &str = include_str!("../glm_4_6_chat_template.jinja");
-
-#[cfg(feature = "glm-5.1")]
-const GLM_TOKENIZER_BYTES: &[u8] = include_bytes!("../glm5-1.json");
-#[cfg(feature = "glm-5.1")]
-static GLM_CHAT_TEMPLATE: &str = include_str!("../glm_5_1_chat_template.jinja");
-
-static GLM_TOKENIZER: LazyLock<Tokenizer> =
-    LazyLock::new(|| Tokenizer::from_bytes(GLM_TOKENIZER_BYTES).unwrap());
+static QWEN_TOKENIZER: LazyLock<Tokenizer> =
+    LazyLock::new(|| Tokenizer::from_bytes(QWEN_TOKENIZER_BYTES).unwrap());
 
 /// A message for tokenization with chat template applied
 #[derive(Debug, Clone, Serialize)]
@@ -66,30 +57,49 @@ impl ChatMessage {
     }
 }
 
-/// Tokenize raw text per GLM (without chat template)
-pub async fn glm<'a, E: Into<InputSequence<'a>> + Send + 'static>(
+/// Tokenize raw text per Qwen2.5-0.5B-Instruct (without chat template).
+pub async fn qwen<'a, E: Into<InputSequence<'a>> + Send + 'static>(
     input: E,
 ) -> Result<usize, Error> {
-    async_threadpool::run(|| Ok(GLM_TOKENIZER.encode(input.into(), false)?.len())).await?
+    async_threadpool::run(|| Ok(QWEN_TOKENIZER.encode(input.into(), false)?.len())).await?
 }
 
-/// Tokenize messages (with GLM chat template)
-pub async fn glm_chat(messages: Vec<ChatMessage>) -> Result<usize, Error> {
+/// Tokenize messages with the Qwen2.5-0.5B-Instruct chat template.
+///
+/// This uses the Hugging Face tokenizer chat template consumed by SGLang for
+/// `Qwen/Qwen2.5-0.5B-Instruct`, with `add_generation_prompt` enabled.
+pub async fn qwen_chat(messages: Vec<ChatMessage>) -> Result<usize, Error> {
     async_threadpool::run(move || {
         let mut env = Environment::new();
         // add support for jinja/python methods like strip
         env.set_unknown_method_callback(pycompat::unknown_method_callback);
-        env.add_template("chat", GLM_CHAT_TEMPLATE)?;
+        env.add_template("chat", QWEN_CHAT_TEMPLATE)?;
         let tmpl = env.get_template("chat")?;
+        let tools: Vec<Value> = Vec::new();
 
         let formatted = tmpl.render(context! {
             messages => messages,
             add_generation_prompt => true,
+            tools => tools,
         })?;
 
-        Ok(GLM_TOKENIZER.encode(formatted, false)?.len())
+        Ok(QWEN_TOKENIZER.encode(formatted, false)?.len())
     })
     .await?
+}
+
+/// Deprecated compatibility alias for [`qwen`].
+#[deprecated(note = "use qwen; this crate now embeds Qwen2.5-0.5B-Instruct")]
+pub async fn glm<'a, E: Into<InputSequence<'a>> + Send + 'static>(
+    input: E,
+) -> Result<usize, Error> {
+    qwen(input).await
+}
+
+/// Deprecated compatibility alias for [`qwen_chat`].
+#[deprecated(note = "use qwen_chat; this crate now embeds Qwen2.5-0.5B-Instruct")]
+pub async fn glm_chat(messages: Vec<ChatMessage>) -> Result<usize, Error> {
+    qwen_chat(messages).await
 }
 
 #[cfg(test)]
@@ -98,29 +108,28 @@ mod tests {
 
     #[test]
     fn initialization() {
-        LazyLock::force(&GLM_TOKENIZER);
+        LazyLock::force(&QWEN_TOKENIZER);
     }
 
     #[tokio::test]
-    async fn test_glm() {
+    async fn test_qwen() {
         let input = "Hello, world!";
-        let result = glm(input).await.unwrap();
+        let result = qwen(input).await.unwrap();
         assert_eq!(result, 4);
     }
 
     #[tokio::test]
-    async fn test_glm_chat() {
+    async fn test_qwen_chat() {
         let messages = vec![ChatMessage::user("Hello, world!".to_owned())];
-        let result = glm_chat(messages).await.unwrap();
-        // Should be more than raw tokenization due to template tokens
-        assert!(result > 4);
+        let result = qwen_chat(messages).await.unwrap();
+        assert_eq!(result, 33);
     }
 
     #[tokio::test]
-    async fn test_glm_chat_vs_raw() {
+    async fn test_qwen_chat_vs_raw() {
         let content = "Hello, world!";
-        let raw_tokens = glm(content).await.unwrap();
-        let chat_tokens = glm_chat(vec![ChatMessage::user(content.into())])
+        let raw_tokens = qwen(content).await.unwrap();
+        let chat_tokens = qwen_chat(vec![ChatMessage::user(content.into())])
             .await
             .unwrap();
 
@@ -129,12 +138,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_glm_chat_with_assistant() {
+    async fn test_qwen_chat_with_assistant() {
         let messages = vec![
             ChatMessage::user("Hello!".to_owned()),
             ChatMessage::assistant("Hi there!".to_owned()),
         ];
-        let result = glm_chat(messages).await.unwrap();
+        let result = qwen_chat(messages).await.unwrap();
         assert!(result > 0);
     }
 }
